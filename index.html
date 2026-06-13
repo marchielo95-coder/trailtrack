@@ -1784,35 +1784,55 @@ async function fetchOverpassPOIs(lat, lng, radius) {
   }));
 }
 
-// Busca foto en Wikimedia Commons para un POI (por nombre o por coordenadas)
+// Busca foto para un POI: Wikipedia → Commons geosearch → Commons por nombre
 async function fetchWikimediaPhoto(poi) {
-  // 1. Si tiene tag wikipedia, buscar thumbnail del artículo
-  const wikiTag = poi.tags.wikipedia || poi.tags.wikidata;
+  const name = poi.name || poi.tags?.['name:es'] || '';
+
+  // 1. Tag wikipedia explícito → thumbnail del artículo
   if (poi.tags.wikipedia) {
     const lang  = poi.tags.wikipedia.includes(':') ? poi.tags.wikipedia.split(':')[0] : 'es';
     const title = poi.tags.wikipedia.includes(':') ? poi.tags.wikipedia.split(':').slice(1).join(':') : poi.tags.wikipedia;
     try {
       const url  = `https://${lang}.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=pageimages&piprop=thumbnail&pithumbsize=400&format=json&origin=*`;
-      const res  = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      const res  = await fetch(url, { signal: AbortSignal.timeout(6000) });
       const data = await res.json();
       const page = Object.values(data?.query?.pages || {})[0];
       if (page?.thumbnail?.source) return page.thumbnail.source;
     } catch { /* continuar */ }
   }
 
-  // 2. Buscar en Wikimedia Commons fotos geolocalizadas cerca del POI
+  // 2. Si tiene nombre, buscar artículo de Wikipedia por nombre (es o en)
+  if (name) {
+    for (const lang of ['es', 'en']) {
+      try {
+        const url  = `https://${lang}.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(name)}&prop=pageimages&piprop=thumbnail&pithumbsize=400&format=json&origin=*`;
+        const res  = await fetch(url, { signal: AbortSignal.timeout(5000) });
+        const data = await res.json();
+        const page = Object.values(data?.query?.pages || {})[0];
+        if (page?.thumbnail?.source && !page.missing) return page.thumbnail.source;
+      } catch { /* continuar */ }
+    }
+  }
+
+  // 3. Wikimedia Commons fotos geolocalizadas en radio amplio (3 km)
   try {
-    const r   = 500; // 500m alrededor del punto exacto
     const url = `https://commons.wikimedia.org/w/api.php?action=query` +
       `&generator=geosearch&ggsnamespace=6&ggscoord=${poi.lat}|${poi.lng}` +
-      `&ggsradius=${r}&ggslimit=3` +
-      `&prop=imageinfo|coordinates&iiprop=url&iiurlwidth=400` +
+      `&ggsradius=3000&ggslimit=5` +
+      `&prop=imageinfo&iiprop=url&iiurlwidth=400` +
       `&format=json&origin=*`;
-    const res  = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const res  = await fetch(url, { signal: AbortSignal.timeout(6000) });
     const data = await res.json();
     const pages = Object.values(data?.query?.pages || {});
-    const withThumb = pages.find(p => p.imageinfo?.[0]?.thumburl);
-    if (withThumb) return withThumb.imageinfo[0].thumburl;
+    const img = pages.find(p => {
+      const title = (p.title || '').toLowerCase();
+      // excluir logos, íconos, mapas (preferir fotos reales)
+      return p.imageinfo?.[0]?.thumburl &&
+        !title.includes('logo') && !title.includes('icon') &&
+        !title.includes('map') && !title.includes('mapa') &&
+        !title.includes('coat') && !title.includes('flag');
+    });
+    if (img) return img.imageinfo[0].thumburl;
   } catch { /* sin foto */ }
 
   return null;
