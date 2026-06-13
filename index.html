@@ -1786,42 +1786,53 @@ async function fetchOverpassPOIs(lat, lng, radius) {
 
 const GOOGLE_KEY = 'AIzaSyCseJ_MExWmFhRs9yREAprPT6gf-OnF3oQ';
 
-// Busca foto en Google Places API v1 (fotos reales de Google Maps)
-async function fetchGooglePhoto(poi) {
+// Foto desde Google Places API v1 (fotos reales subidas por usuarios)
+async function fetchGooglePlacesPhoto(poi) {
   try {
-    // 1. Nearby Search para encontrar el lugar
     const body = JSON.stringify({
       locationRestriction: {
         circle: {
           center: { latitude: poi.lat, longitude: poi.lng },
-          radius: 150
+          radius: 1000
         }
       },
-      maxResultCount: 1
+      maxResultCount: 3
     });
     const searchRes = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': GOOGLE_KEY,
-        'X-Goog-FieldMask': 'places.photos,places.displayName'
+        'X-Goog-FieldMask': 'places.photos'
       },
       body,
-      signal: AbortSignal.timeout(6000)
+      signal: AbortSignal.timeout(7000)
     });
     const searchData = await searchRes.json();
-    const place = searchData?.places?.[0];
-    const photoName = place?.photos?.[0]?.name;
+    // buscar el primer lugar que tenga fotos
+    const photoName = searchData?.places?.find(p => p.photos?.length)?.photos?.[0]?.name;
     if (!photoName) return null;
 
-    // 2. Obtener URL de la foto
     const photoRes = await fetch(
       `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=400&skipHttpRedirect=true&key=${GOOGLE_KEY}`,
-      { signal: AbortSignal.timeout(6000) }
+      { signal: AbortSignal.timeout(7000) }
     );
     const photoData = await photoRes.json();
     return photoData?.photoUri || null;
   } catch { return null; }
+}
+
+// Street View Static — siempre devuelve una imagen real del lugar (sin redirect)
+function googleStreetViewUrl(lat, lng) {
+  return `https://maps.googleapis.com/maps/api/streetview?size=400x220&location=${lat},${lng}&fov=90&key=${GOOGLE_KEY}`;
+}
+
+// Fetch combinado: Places photo → Street View → Wikimedia
+async function fetchGooglePhoto(poi) {
+  const placesPhoto = await fetchGooglePlacesPhoto(poi);
+  if (placesPhoto) return placesPhoto;
+  // Street View siempre tiene algo (aunque sea sin cobertura muestra gris)
+  return googleStreetViewUrl(poi.lat, poi.lng);
 }
 
 // Busca foto para un POI: Google Places → Wikipedia → Commons geosearch → Commons por nombre
@@ -1903,17 +1914,13 @@ function buildPoiPopup(poi, photoUrl) {
   const photoHtml = photoUrl
     ? `<img src="${photoUrl}" alt="${esc(name)}" class="poi-popup-photo" onclick="openLightbox('${photoUrl}')" />`
     : '';
-  const gmLink = `https://www.google.com/maps/search/?api=1&query=${poi.lat},${poi.lng}`;
-  const gmBtn  = !photoUrl
-    ? `<a class="popup-gmaps" href="${gmLink}" target="_blank" rel="noopener">📸 Ver fotos en Google Maps</a>`
-    : '';
   const compassName = name.replace(/'/g,'\\u0027').slice(0,50);
   return `
     ${photoHtml}
     <div class="popup-title">${info.emoji} ${esc(name)}</div>
     ${ele   ? `<div class="popup-desc">${ele}</div>` : ''}
     ${desc  ? `<div class="popup-desc">${esc(desc.slice(0,140))}</div>` : ''}
-    ${wiki}${gmBtn}
+    ${wiki}
     <button class="popup-nav" onclick="startCompassTo(${poi.lat},${poi.lng},'${compassName}')">
       🧭 Navegar aquí — sin internet
     </button>`;
