@@ -1859,13 +1859,17 @@ function buildPoiPopup(poi, photoUrl) {
   const photoHtml = photoUrl
     ? `<img src="${photoUrl}" alt="${esc(name)}" class="poi-popup-photo" onclick="openLightbox('${photoUrl}')" />`
     : '';
+  const gmLink = `https://www.google.com/maps/search/?api=1&query=${poi.lat},${poi.lng}`;
+  const gmBtn  = !photoUrl
+    ? `<a class="popup-gmaps" href="${gmLink}" target="_blank" rel="noopener">📸 Ver fotos en Google Maps</a>`
+    : '';
   const compassName = name.replace(/'/g,'\\u0027').slice(0,50);
   return `
     ${photoHtml}
     <div class="popup-title">${info.emoji} ${esc(name)}</div>
     ${ele   ? `<div class="popup-desc">${ele}</div>` : ''}
     ${desc  ? `<div class="popup-desc">${esc(desc.slice(0,140))}</div>` : ''}
-    ${wiki}
+    ${wiki}${gmBtn}
     <button class="popup-nav" onclick="startCompassTo(${poi.lat},${poi.lng},'${compassName}')">
       🧭 Navegar aquí — sin internet
     </button>`;
