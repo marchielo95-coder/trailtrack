@@ -1784,9 +1784,53 @@ async function fetchOverpassPOIs(lat, lng, radius) {
   }));
 }
 
-// Busca foto para un POI: Wikipedia → Commons geosearch → Commons por nombre
+const GOOGLE_KEY = 'AIzaSyCseJ_MExWmFhRs9yREAprPT6gf-OnF3oQ';
+
+// Busca foto en Google Places API v1 (fotos reales de Google Maps)
+async function fetchGooglePhoto(poi) {
+  try {
+    // 1. Nearby Search para encontrar el lugar
+    const body = JSON.stringify({
+      locationRestriction: {
+        circle: {
+          center: { latitude: poi.lat, longitude: poi.lng },
+          radius: 150
+        }
+      },
+      maxResultCount: 1
+    });
+    const searchRes = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_KEY,
+        'X-Goog-FieldMask': 'places.photos,places.displayName'
+      },
+      body,
+      signal: AbortSignal.timeout(6000)
+    });
+    const searchData = await searchRes.json();
+    const place = searchData?.places?.[0];
+    const photoName = place?.photos?.[0]?.name;
+    if (!photoName) return null;
+
+    // 2. Obtener URL de la foto
+    const photoRes = await fetch(
+      `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=400&skipHttpRedirect=true&key=${GOOGLE_KEY}`,
+      { signal: AbortSignal.timeout(6000) }
+    );
+    const photoData = await photoRes.json();
+    return photoData?.photoUri || null;
+  } catch { return null; }
+}
+
+// Busca foto para un POI: Google Places → Wikipedia → Commons geosearch → Commons por nombre
 async function fetchWikimediaPhoto(poi) {
   const name = poi.name || poi.tags?.['name:es'] || '';
+
+  // 0. Google Places (fotos reales de Google Maps)
+  const gPhoto = await fetchGooglePhoto(poi);
+  if (gPhoto) return gPhoto;
 
   // 1. Tag wikipedia explícito → thumbnail del artículo
   if (poi.tags.wikipedia) {
