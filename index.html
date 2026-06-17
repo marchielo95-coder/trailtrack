@@ -1244,6 +1244,29 @@ function updatePosMarker(pos) {
 }
 
 // ── TRACKING ───────────────────────────────────────────────────────────────
+// ── WAKE LOCK — mantiene pantalla activa durante el rastreo ─────────────────
+let wakeLock = null;
+
+async function acquireWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    // Re-adquirir si el sistema lo libera (ej. al volver de otra app)
+    wakeLock.addEventListener('release', () => {
+      if (isTracking) acquireWakeLock();
+    });
+  } catch(e) { /* permiso denegado o no soportado */ }
+}
+
+function releaseWakeLock() {
+  if (wakeLock) { wakeLock.release().catch(()=>{}); wakeLock = null; }
+}
+
+// Re-adquirir cuando la pestaña vuelve a estar visible
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && isTracking) acquireWakeLock();
+});
+
 function startTracking() {
   isTracking=true; trackPts=[]; waypoints=[]; wpCounter=0;
   totalDist=0; lastPos=null; startTime=Date.now();
@@ -1257,6 +1280,7 @@ function startTracking() {
   document.getElementById('rec-badge').classList.add('visible');
   renderWpList();
 
+  acquireWakeLock();
   timerH = setInterval(tickTimer, 1000);
   watchId = navigator.geolocation.watchPosition(onPos, e=>console.warn(e),
     {enableHighAccuracy:true, maximumAge:2000});
@@ -1282,6 +1306,7 @@ function onPos(pos) {
 
 function stopTracking() {
   isTracking = false;
+  releaseWakeLock();
   if (watchId!=null) { navigator.geolocation.clearWatch(watchId); watchId=null; }
   clearInterval(timerH);
 
